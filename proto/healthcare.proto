@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+package healthcare;
+
+message VitalData {
+  string patient_id  = 1;
+  int32  heart_rate  = 2;
+  float  temperature = 3;
+  int32  spo2        = 4;
+  int64  timestamp   = 5;
+}
+
+message Alert {
+  string patient_id = 1;
+  string level      = 2;
+  string message    = 3;
+  int64  timestamp  = 4;
+}
+
+message Ack {
+  bool   success = 1;
+  string message = 2;
+}
+
+message PatientRequest {
+  string patient_id = 1;
+}
+
+message PatientStatus {
+  string    patient_id   = 1;
+  VitalData latest_vital = 2;
+  string    status       = 3;
+  int64     last_seen    = 4;
+}
+
+message PatientListResponse {
+  repeated PatientStatus patients = 1;
+}
+
+message Empty {}
+
+service SensorService {
+  rpc SendVitalStream (stream VitalData) returns (Ack);
+}
+
+service MonitoringService {
+  rpc GetPatientStatus (PatientRequest) returns (PatientStatus);
+  rpc GetActivePatients (Empty) returns (PatientListResponse);
+  rpc SubscribePatient (PatientRequest) returns (stream VitalData);
+  rpc UpdatePatientData (VitalData) returns (Ack);
+}
+
+service AlertService {
+  rpc CheckAlert (VitalData) returns (Alert);
+  rpc StreamAlert (stream VitalData) returns (stream Alert);
+}
