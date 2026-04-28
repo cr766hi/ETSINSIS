@@ -63,6 +63,42 @@ async function subscribeToAllPatients() {
   });
 }
 
+// Check for new patients periodically
+function startPatientMonitoring() {
+  setInterval(() => {
+    monitoringClient.GetActivePatients({}, (err, response) => {
+      if (err) {
+        console.error('[Monitor] Error getting patients:', err.message);
+        return;
+      }
+      const patients = response.patients || [];
+      
+      // Check for new patients
+      patients.forEach(patient => {
+        if (!activePatients.has(patient.patient_id)) {
+          console.log(`[Monitor] 🆕 New patient detected: ${patient.patient_id}`);
+          activePatients.set(patient.patient_id, {
+            patient_id: patient.patient_id,
+            latest_vital: patient.latest_vital || null,
+            status: patient.status || 'ONLINE',
+            last_seen: patient.last_seen ? parseInt(patient.last_seen) : Date.now()
+          });
+          subscribeToPatient(patient.patient_id);
+          
+          // Notify all connected clients about new patient
+          broadcastMessage({
+            type: 'new_patient',
+            data: {
+              patient_id: patient.patient_id,
+              status: 'ONLINE'
+            }
+          });
+        }
+      });
+    });
+  }, 5000); // Check every 5 seconds
+}
+
 // Subscribe to single patient
 function subscribeToPatient(patientId) {
   if (activeSubscriptions.has(patientId)) return;
@@ -73,14 +109,45 @@ function subscribeToPatient(patientId) {
   stream.on('data', (vital) => {
     const patientData = activePatients.get(patientId);
     if (patientData) {
-      patientData.latest_vital = vital;
+      // Format vital data before storing
+      const formattedVital = {
+        ...vital,
+        temperature: parseFloat(vital.temperature.toFixed(1)),
+        timestamp: parseInt(vital.timestamp) || Date.now()
+      };
+      patientData.latest_vital = formattedVital;
       patientData.last_seen = Date.now();
+      
+      // Evaluate alert status based on latest vital
+      const { heart_rate, temperature, spo2 } = formattedVital;
+      let alertLevel = "NORMAL";
+      const issues = [];
+      
+      if (heart_rate > 120) { 
+        alertLevel = "CRITICAL";
+        issues.push(`HR ${heart_rate} bpm`);
+      }
+      if (spo2 < 90) { 
+        alertLevel = "CRITICAL";
+        issues.push(`SpO2 ${spo2}%`);
+      }
+      if (temperature > 38.0 && alertLevel !== "CRITICAL") { 
+        alertLevel = "WARNING";
+        issues.push(`Temp ${temperature.toFixed(1)}°C`);
+      }
+      
+      patientData.alert_level = alertLevel;
+      patientData.alert_message = issues.length > 0 ? issues.join("; ") : "Normal";
     }
     
-    // Broadcast to all clients
+    // Broadcast to all clients with formatted data
     broadcastMessage({
       type: 'vital_update',
-      data: vital
+      data: {
+        ...vital,
+        temperature: parseFloat(vital.temperature.toFixed(1)),
+        timestamp: parseInt(vital.timestamp) || Date.now()
+      }
     });
   });
   
@@ -103,7 +170,17 @@ async function subscribeToAlerts() {
     const stream = alertClient.StreamAlert({});
     
     stream.on('data', (alert) => {
-      console.log(`[Alert] ${alert.level}: ${alert.message}`);
+      console.log(`[Alert] 📢 ${alert.level}: [${alert.patient_id}] ${alert.message}`);
+      
+      // Update patient status based on alert level
+      const patient = activePatients.get(alert.patient_id);
+      if (patient) {
+        patient.alert_level = alert.level;
+        patient.alert_message = alert.message;
+        console.log(`[Alert] Updated ${alert.patient_id} status to ${alert.level}`);
+      }
+      
+      // Broadcast alert to all WebSocket clients
       broadcastMessage({
         type: 'alert',
         data: alert
@@ -115,6 +192,13 @@ async function subscribeToAlerts() {
       // Reconnect after 5 seconds
       setTimeout(() => subscribeToAlerts(), 5000);
     });
+    
+    stream.on('end', () => {
+      console.log('[Alert Stream] Stream ended, reconnecting...');
+      setTimeout(() => subscribeToAlerts(), 5000);
+    });
+    
+    console.log('[Alert] ✅ Alert stream subscribed');
   } catch (err) {
     console.error('[Alert Stream] Init Error:', err.message);
     setTimeout(() => subscribeToAlerts(), 5000);
@@ -295,6 +379,7 @@ server.listen(PORT, async () => {
     await getActivePatients();
     subscribeToAllPatients();
     await subscribeToAlerts();
+    startPatientMonitoring();
   } catch (err) {
     console.error('[Init] Error during setup:', err.message);
   }

@@ -9,6 +9,7 @@ const packageDef = protoLoader.loadSync(PROTO_PATH, {
 const proto = grpc.loadPackageDefinition(packageDef).healthcare;
 
 const RULES = { HEART_RATE_CRITICAL: 120, SPO2_CRITICAL: 90, TEMP_WARNING: 38.0 };
+const alertSubscribers = new Set(); // Track all subscribed streams
 
 function evaluateVital(vitalData) {
   const { patient_id, heart_rate, temperature, spo2, timestamp } = vitalData;
@@ -27,19 +28,37 @@ function CheckAlert(call, callback) {
   const alert = evaluateVital(v);
   const icon = alert.level === "CRITICAL" ? "🔴" : alert.level === "WARNING" ? "🟡" : "🟢";
   console.log(`[AlertService] ${icon} [${alert.level}] ${alert.patient_id}: ${alert.message}`);
+  
+  // Broadcast alert to all subscribers
+  alertSubscribers.forEach(stream => {
+    try {
+      stream.write(alert);
+    } catch (err) {
+      alertSubscribers.delete(stream);
+    }
+  });
+  
   callback(null, alert);
 }
 
 function StreamAlert(call) {
-  console.log("[AlertService] BiDi stream dibuka...");
-  call.on("data", (v) => {
-    const alert = evaluateVital(v);
-    const icon = alert.level === "CRITICAL" ? "🔴" : alert.level === "WARNING" ? "🟡" : "🟢";
-    console.log(`[AlertService] ${icon} [${alert.level}] ${alert.patient_id}: ${alert.message}`);
-    call.write(alert);
+  console.log("[AlertService] ✅ Alert subscriber terhubung!");
+  alertSubscribers.add(call);
+  
+  call.on("error", (err) => {
+    console.error("[AlertService] Subscriber error:", err.message);
+    alertSubscribers.delete(call);
   });
-  call.on("end", () => call.end());
-  call.on("error", (err) => console.error("[AlertService] Error:", err.message));
+  
+  call.on("end", () => {
+    console.log("[AlertService] 📴 Alert subscriber disconnect");
+    alertSubscribers.delete(call);
+  });
+  
+  // Keep stream open
+  process.nextTick(() => {
+    // Stream akan tetap open sampai client disconnect
+  });
 }
 
 const server = new grpc.Server();

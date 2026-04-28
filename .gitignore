@@ -1,2 +1,7 @@
 node_modules/
 dist/
+*.db
+*.node
+.env
+.env.local
+package-lock.json

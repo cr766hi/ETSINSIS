@@ -10,14 +10,14 @@ const proto = grpc.loadPackageDefinition(packageDef).healthcare;
 
 function parseArgs() {
   const args = process.argv.slice(2);
-  const result = { patient_id: null, mode: "random", interval: 2000, batch: 3 };
+  const result = { patient_id: null, mode: "random", interval: 2000, batch: 3, multi: true };
   for (const arg of args) {
     if (arg.startsWith("--patient=")) result.patient_id = arg.split("=")[1];
     if (arg.startsWith("--mode=")) result.mode = arg.split("=")[1];
     if (arg.startsWith("--interval=")) result.interval = parseInt(arg.split("=")[1]);
     if (arg.startsWith("--batch=")) result.batch = parseInt(arg.split("=")[1]);
+    if (arg.startsWith("--multi=")) result.multi = arg.split("=")[1] === "true";
   }
-  if (!result.patient_id) result.patient_id = "P-" + Math.random().toString(36).substring(2, 6).toUpperCase();
   return result;
 }
 
@@ -38,6 +38,32 @@ function generateVital(patientId, mode) {
   return { patient_id: patientId, heart_rate, temperature, spo2, timestamp: Date.now().toString() };
 }
 
+function sendVital(client, patientId, mode) {
+  return new Promise((resolve, reject) => {
+    const v = generateVital(patientId, mode);
+    console.log(`📡 ${v.patient_id} | HR=${v.heart_rate} | Temp=${v.temperature} | SpO2=${v.spo2}`);
+    
+    const call = client.SendVitalStream((err, res) => {
+      if (err) {
+        console.error(`❌ Error sending vital for ${patientId}:`, err.message);
+        reject(err);
+      } else {
+        resolve(res);
+      }
+    });
+    
+    call.write(v);
+    call.end();
+    
+    // Add timeout in case server doesn't respond
+    const timeout = setTimeout(() => {
+      reject(new Error(`Timeout sending vital for ${patientId}`));
+    }, 5000);
+    
+    call.on('finish', () => clearTimeout(timeout));
+  });
+}
+
 function sendStream(client, patientId, mode, batchSize) {
   return new Promise((resolve, reject) => {
     const call = client.SendVitalStream((err, res) => err ? reject(err) : resolve(res));
@@ -55,28 +81,61 @@ async function main() {
   console.log("═══════════════════════════════");
   console.log("     PATIENT SIMULATOR");
   console.log("═══════════════════════════════");
-  console.log(`  Patient : ${config.patient_id}`);
-  console.log(`  Mode    : ${config.mode}`);
-  console.log(`  Interval: ${config.interval}ms`);
-  console.log("═══════════════════════════════\n");
-
+  
   const client = new proto.SensorService("localhost:50051", grpc.credentials.createInsecure());
   await new Promise(r => setTimeout(r, 500));
 
-  let round = 0;
-  const loop = async () => {
-    round++;
-    console.log(`\n─── Round #${round} ───`);
-    try {
-      const res = await sendStream(client, config.patient_id, config.mode, config.batch);
-      console.log(`✅ ${res.message}`);
-    } catch (err) {
-      console.error(`❌ Error: ${err.message}`);
-      if (err.code === grpc.status.UNAVAILABLE) await new Promise(r => setTimeout(r, 5000));
+  if (config.multi) {
+    // Mode 3 pasien berbeda
+    console.log(`  Jumlah pasien : 3`);
+    console.log(`  Mode    : ${config.mode}`);
+    console.log(`  Interval: ${config.interval}ms`);
+    console.log("═══════════════════════════════\n");
+
+    const patientIds = ["P-BVCY", "P-ALXM", "P-TJKZ"];
+    const modes = ["normal", "warning", "critical"];
+
+    for (let i = 0; i < patientIds.length; i++) {
+      setTimeout(() => {
+        let round = 0;
+        const loop = async () => {
+          round++;
+          try {
+            const res = await sendVital(client, patientIds[i], modes[i]);
+            console.log(`✅ [${patientIds[i]}] Round #${round}`);
+          } catch (err) {
+            console.error(`❌ [${patientIds[i]}] Error: ${err.message}`);
+            if (err.code === grpc.status.UNAVAILABLE) await new Promise(r => setTimeout(r, 5000));
+          }
+          setTimeout(loop, config.interval);
+        };
+        loop();
+      }, i * 1000);
     }
-    setTimeout(loop, config.interval);
-  };
-  loop();
+  } else {
+    // Mode single pasien
+    const patientId = config.patient_id || "P-" + Math.random().toString(36).substring(2, 6).toUpperCase();
+    console.log(`  Patient : ${patientId}`);
+    console.log(`  Mode    : ${config.mode}`);
+    console.log(`  Interval: ${config.interval}ms`);
+    console.log("═══════════════════════════════\n");
+
+    let round = 0;
+    const loop = async () => {
+      round++;
+      console.log(`\n─── Round #${round} ───`);
+      try {
+        const res = await sendStream(client, patientId, config.mode, config.batch);
+        console.log(`✅ ${res.message}`);
+      } catch (err) {
+        console.error(`❌ Error: ${err.message}`);
+        if (err.code === grpc.status.UNAVAILABLE) await new Promise(r => setTimeout(r, 5000));
+      }
+      setTimeout(loop, config.interval);
+    };
+    loop();
+  }
+
   process.on("SIGINT", () => { console.log("\nSimulator stop."); process.exit(0); });
 }
 

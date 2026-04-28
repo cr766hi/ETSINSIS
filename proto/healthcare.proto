@@ -52,5 +52,5 @@ service MonitoringService {
 
 service AlertService {
   rpc CheckAlert (VitalData) returns (Alert);
-  rpc StreamAlert (stream VitalData) returns (stream Alert);
+  rpc StreamAlert (Empty) returns (stream Alert);
 }

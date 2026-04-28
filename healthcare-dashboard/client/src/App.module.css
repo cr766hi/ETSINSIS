@@ -134,6 +134,92 @@ body {
   color: var(--color-text-secondary);
 }
 
+.alertBanner {
+  padding: var(--spacing-lg);
+  border-bottom: 3px solid;
+  background: rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+  animation: slideDown 0.3s ease-out;
+}
+
+.alertContent {
+  max-width: 1400px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-lg);
+}
+
+.alertIcon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.alertText {
+  flex: 1;
+}
+
+.alertTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-xs);
+}
+
+.patientId {
+  font-size: 1rem;
+  font-weight: 700;
+  color: inherit;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.alertLevel {
+  font-size: 0.875rem;
+  font-weight: 700;
+  opacity: 0.8;
+  padding: 2px 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+.alertText p {
+  margin: 0;
+  font-size: var(--font-size-caption1);
+  opacity: 0.9;
+}
+
+.alert_critical {
+  border-bottom-color: var(--color-critical);
+  background: linear-gradient(90deg, rgba(255, 59, 48, 0.1) 0%, transparent 100%);
+  color: #ff6b6b;
+}
+
+.alert_warning {
+  border-bottom-color: var(--color-warning);
+  background: linear-gradient(90deg, rgba(255, 149, 0, 0.1) 0%, transparent 100%);
+  color: #ffa500;
+}
+
+.alert_normal {
+  border-bottom-color: var(--color-success);
+  background: linear-gradient(90deg, rgba(52, 199, 89, 0.1) 0%, transparent 100%);
+  color: #34c759;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .header h1 {
