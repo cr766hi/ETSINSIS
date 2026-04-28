@@ -3,7 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import WebSocket from 'ws';
 import { createServer } from 'http';
-import { initGrpcClients, monitoringClient, alertClient } from './grpc-client.js';
+import { initGrpcClients, monitoringClient, alertClient, sensorClient } from './grpc-client.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -155,9 +155,100 @@ wss.on('connection', (ws) => {
         }
       } else if (cmd.type === 'ping') {
         ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
+      } else if (cmd.type === 'send_vital') {
+        // Browser send vital data to sensor service
+        const vital = cmd.data;
+        console.log(`[Control] 📤 Received vital from browser:`, vital);
+        
+        sensorClient.SendVitalStream((err, response) => {
+          if (err) {
+            console.error('[Control] Error sending vital:', err.message);
+            ws.send(JSON.stringify({
+              type: 'control_response',
+              status: 'error',
+              message: `Failed to send vital: ${err.message}`
+            }));
+            return;
+          }
+          console.log('[Control] ✅ Vital sent to sensor service');
+          ws.send(JSON.stringify({
+            type: 'control_response',
+            status: 'success',
+            message: 'Vital data sent successfully'
+          }));
+        });
+        
+        // Send individual vital
+        const call = sensorClient.SendVitalStream((err) => {
+          if (err) console.error('[Control] SendVitalStream error:', err.message);
+        });
+        call.write(vital);
+        call.end();
+        
+      } else if (cmd.type === 'subscribe_patient') {
+        // Browser request subscribe specific patient
+        const patientId = cmd.patient_id;
+        if (!patientId) {
+          ws.send(JSON.stringify({
+            type: 'control_response',
+            status: 'error',
+            message: 'patient_id required'
+          }));
+          return;
+        }
+        
+        if (!activeSubscriptions.has(patientId)) {
+          subscribeToPatient(patientId);
+          console.log(`[Control] 🔗 Subscribed to ${patientId} from browser request`);
+          ws.send(JSON.stringify({
+            type: 'control_response',
+            status: 'success',
+            message: `Subscribed to ${patientId}`
+          }));
+        } else {
+          ws.send(JSON.stringify({
+            type: 'control_response',
+            status: 'info',
+            message: `Already subscribed to ${patientId}`
+          }));
+        }
+        
+      } else if (cmd.type === 'unsubscribe_patient') {
+        // Browser request unsubscribe patient
+        const patientId = cmd.patient_id;
+        if (!patientId) {
+          ws.send(JSON.stringify({
+            type: 'control_response',
+            status: 'error',
+            message: 'patient_id required'
+          }));
+          return;
+        }
+        
+        if (activeSubscriptions.has(patientId)) {
+          const stream = activeSubscriptions.get(patientId);
+          stream.cancel?.();
+          activeSubscriptions.delete(patientId);
+          console.log(`[Control] 🔓 Unsubscribed from ${patientId}`);
+          ws.send(JSON.stringify({
+            type: 'control_response',
+            status: 'success',
+            message: `Unsubscribed from ${patientId}`
+          }));
+        } else {
+          ws.send(JSON.stringify({
+            type: 'control_response',
+            status: 'info',
+            message: `Not subscribed to ${patientId}`
+          }));
+        }
       }
     } catch (e) {
       console.error('[WS] Parse error:', e.message);
+      ws.send(JSON.stringify({
+        type: 'error',
+        message: 'Invalid message format'
+      }));
     }
   });
   
