@@ -472,9 +472,9 @@ This project is part of ETS 2024 Semester 4 coursework.
 
 ## 👥 Author
 
-- **Developer**: Aditya
-- **Repository**: [cr766hi/ETSINSIS](https://github.com/cr766hi/ETSINSIS)
-
+- Adiwidya Budi P @Riverzn
+- Chritiano Ronaldo S. @cr766hi
+  
 ## 🔗 Related Files
 
 - [Healthcare Protocol Buffers](./proto/healthcare.proto)
