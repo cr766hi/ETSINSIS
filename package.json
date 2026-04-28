@@ -1,0 +1,24 @@
+{
+  "name": "healthcare-dashboard-system",
+  "version": "1.0.0",
+  "description": "Real-time Smart Healthcare Monitoring Dashboard",
+  "type": "commonjs",
+  "scripts": {
+    "start:all": "node start-all.js",
+    "start:monitoring": "cd monitoring_service && node index.js",
+    "start:alert": "cd alert_service && node index.js",
+    "start:sensor": "cd sensor_service && node index.js",
+    "start:simulator": "cd simulator && node index.js",
+    "start:server": "cd healthcare-dashboard/server && node index.js",
+    "start:client": "cd healthcare-dashboard/client && npm run dev"
+  },
+  "keywords": [
+    "healthcare",
+    "monitoring",
+    "grpc",
+    "websocket",
+    "real-time"
+  ],
+  "author": "",
+  "license": "MIT"
+}

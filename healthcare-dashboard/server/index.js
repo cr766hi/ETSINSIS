@@ -1,16 +1,18 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import WebSocket from 'ws';
+import { WebSocketServer } from 'ws';
 import { createServer } from 'http';
 import { initGrpcClients, monitoringClient, alertClient, sensorClient } from './grpc-client.js';
+
+const WEBSOCKET_OPEN = 1;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = createServer(app);
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocketServer({ server });
 
 const PORT = process.env.PORT || 3000;
 const isDev = process.env.NODE_ENV !== 'production';
@@ -35,19 +37,19 @@ async function getActivePatients() {
         resolve([]);
         return;
       }
-      const patientIds = response.patient_ids || [];
-      console.log(`[Init] ✅ Found ${patientIds.length} active patients`);
+      const patients = response.patients || [];
+      console.log(`[Init] ✅ Found ${patients.length} active patients`);
       
-      patientIds.forEach(pid => {
-        activePatients.set(pid, {
-          patient_id: pid,
-          latest_vital: null,
-          status: 'ONLINE',
-          last_seen: Date.now()
+      patients.forEach(patient => {
+        activePatients.set(patient.patient_id, {
+          patient_id: patient.patient_id,
+          latest_vital: patient.latest_vital || null,
+          status: patient.status || 'ONLINE',
+          last_seen: patient.last_seen ? parseInt(patient.last_seen) : Date.now()
         });
       });
       
-      resolve(patientIds);
+      resolve(patients);
     });
   });
 }
@@ -97,26 +99,37 @@ function subscribeToPatient(patientId) {
 
 // Subscribe to alerts
 async function subscribeToAlerts() {
-  const stream = alertClient.StreamAlert({});
-  
-  stream.on('data', (alert) => {
-    console.log(`[Alert] ${alert.level}: ${alert.message}`);
-    broadcastMessage({
-      type: 'alert',
-      data: alert
+  try {
+    const stream = alertClient.StreamAlert({});
+    
+    stream.on('data', (alert) => {
+      console.log(`[Alert] ${alert.level}: ${alert.message}`);
+      broadcastMessage({
+        type: 'alert',
+        data: alert
+      });
     });
-  });
-  
-  stream.on('error', (err) => {
-    console.error('[Alert Stream] Error:', err.message);
-  });
+    
+    stream.on('error', (err) => {
+      console.error('[Alert Stream] Error:', err.message);
+      // Reconnect after 5 seconds
+      setTimeout(() => subscribeToAlerts(), 5000);
+    });
+  } catch (err) {
+    console.error('[Alert Stream] Init Error:', err.message);
+    setTimeout(() => subscribeToAlerts(), 5000);
+  }
 }
 
 // Broadcast message to all connected clients
 function broadcastMessage(message) {
   wss.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(JSON.stringify(message));
+    if (client.readyState === WEBSOCKET_OPEN) {
+      try {
+        client.send(JSON.stringify(message));
+      } catch (err) {
+        console.error('[Broadcast] Error sending message:', err.message);
+      }
     }
   });
 }
@@ -278,9 +291,13 @@ server.listen(PORT, async () => {
   console.log('  - Alert: localhost:50053\n');
   
   // Initialize patients and subscriptions
-  await getActivePatients();
-  subscribeToAllPatients();
-  subscribeToAlerts();
+  try {
+    await getActivePatients();
+    subscribeToAllPatients();
+    await subscribeToAlerts();
+  } catch (err) {
+    console.error('[Init] Error during setup:', err.message);
+  }
 });
 
 process.on('SIGINT', () => {
